@@ -1,6 +1,6 @@
 # DeskPet 桌面宠物
 
-一个基于 Python3 和 PySide6 的桌面宠物应用，支持 AI 对话功能。
+一个基于 Python3.9 和 PySide6 的桌面宠物应用，支持 AI 对话功能。
 
 ## 功能特性
 
