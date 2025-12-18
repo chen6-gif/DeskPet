@@ -4,11 +4,18 @@ from PySide6.QtGui import QPixmap, QAction, QIcon
 from core.chat_window import ChatBubble
 from ui.settings_dialog import SettingsDialog
 from core.config_manager import load_config, save_config
+from core.subtitle_window import SubtitleWindow
 
 class PetWindow(QWidget):
     def __init__(self):
         super().__init__()
         self.drag_position = QPoint()
+        self.chat_bubble = None
+        self.subtitle = None  # 字幕窗口
+        self.use_subtitle = True  # 是否使用字幕模式
+        self.use_subtitle_mode = True  # False=对话框模式, True=字幕模式
+        from core.llm_service import LLMService
+        self.llm = LLMService()
         self.settings = {
             "pet_name": "gmds",
             "pet_image": "assets/images/idle/default.png",
@@ -18,7 +25,7 @@ class PetWindow(QWidget):
         } | load_config()
         self.init_ui()
         self.init_tray()
-        self.chat_bubble = None
+
 
     """------界面------"""
 
@@ -55,12 +62,18 @@ class PetWindow(QWidget):
             event.accept()
 
     """移动拖拽"""
+
     def mouseMoveEvent(self, event):
+        """鼠标移动：拖拽窗口"""
         if event.buttons() & Qt.MouseButton.LeftButton:
             self.move(event.globalPosition().toPoint() - self.drag_position)
-            #对话框跟踪移动
             self.update_chat_position()
-            event.accept()
+
+            # 更新字幕位置
+            if self.subtitle and self.subtitle.isVisible():
+                self.subtitle.update_position()
+
+        event.accept()
 
     """对话框移动跟随"""
     def update_chat_position(self):
@@ -86,16 +99,19 @@ class PetWindow(QWidget):
 
         #添加菜单项
         action_chat = QAction("对话",self)
+        action_mode = QAction("切换字幕模式" if not self.use_subtitle_mode else "切换对话框模式", self)
         action_hide = QAction("隐藏",self)
         action_quit = QAction("退出",self)
 
         #绑定事件
         action_chat.triggered.connect(self.open_chat)
+        action_mode.triggered.connect(self.toggle_chat_mode)
         action_hide.triggered.connect(self.hide)
         action_quit.triggered.connect(QApplication.quit)
 
         #添加到菜单
         menu.addAction(action_chat)
+        menu.addAction(action_mode)
         menu.addAction(action_hide)
         menu.addSeparator()     #分隔线
         menu.addAction(action_quit)
@@ -103,26 +119,77 @@ class PetWindow(QWidget):
         #显示菜单
         menu.exec_(event.globalPos())
 
+    def toggle_chat_mode(self):
+        """切换对话模式"""
+        # 隐藏当前模式的窗口
+        if self.chat_bubble and self.chat_bubble.isVisible():
+            self.chat_bubble.hide()
+        if self.subtitle and self.subtitle.isVisible():
+            self.subtitle.hide()
+
+        # 切换模式
+        self.use_subtitle_mode = not self.use_subtitle_mode
+
+        # 自动打开新模式的对话
+        self.open_chat()
+
+        mode_name = "字幕模式" if self.use_subtitle_mode else "对话框模式"
+        print(f"已切换到{mode_name}")
+
     """对话功能"""
     def mouseDoubleClickEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
             self.open_chat()
             event.accept()
+
     def open_chat(self):
-        """打开对话窗口"""
+        """打开对话（根据模式选择对话框或字幕）"""
+        # 更新 LLM 配置
+        self.llm.set_config(
+            api_key=self.settings.get("api_key", ""),
+            base_url=self.settings.get("api_url", ""),
+            model=self.settings.get("model", "")
+        )
+        if self.use_subtitle_mode:
+            # 字幕模式
+            if self.subtitle is None:
+                self.subtitle = SubtitleWindow(self)
+                self.subtitle.message_sent.connect(self.handle_subtitle_message)
+
+            if self.subtitle.isVisible():
+                self.subtitle.hide()
+            else:
+                self.subtitle.show_input()
+        else:
+            # 对话框模式
+            if self.chat_bubble is None:
+                self.chat_bubble = ChatBubble(self)
+                self.chat_bubble.llm = self.llm  # 使用统一的 LLM
+
+            if self.chat_bubble.isVisible():
+                self.chat_bubble.hide()
+            else:
+                self.chat_bubble.show_near_pet()
+
+    def handle_subtitle_message(self, text):
+        """处理字幕模式的消息"""
+        self.llm.set_config(
+            api_key=self.settings.get("api_key", ""),
+            base_url=self.settings.get("api_url", ""),
+            model=self.settings.get("model", "")
+        )
+
+        reply = self.llm.chat(text)
+        self.subtitle.show_subtitle(reply)
+
+        # 确保对话框存在，再同步记录
         if self.chat_bubble is None:
             self.chat_bubble = ChatBubble(self)
-            # 使用设置中的 LLM 配置
-            self.chat_bubble.llm.set_config(
-                api_key=self.settings.get("api_key", ""),
-                base_url=self.settings.get("api_url", ""),
-                model=self.settings.get("model", "")
-            )
-
-        if self.chat_bubble.isVisible():
-            self.chat_bubble.hide()
-        else:
-            self.chat_bubble.show_near_pet()
+            self.chat_bubble.llm = self.llm
+        
+        pet_name = self.settings.get("pet_name", "宠物")
+        self.chat_bubble.chat_display.append(f"你: {text}")
+        self.chat_bubble.chat_display.append(f"{pet_name}: {reply}")
 
     """------系统托盘------"""
 
@@ -197,3 +264,9 @@ class PetWindow(QWidget):
         self.tray_icon.setToolTip(new_settings.get("pet_name", "桌面宠物"))
 
         print(f"设置已保存: {new_settings}")
+
+    def show_subtitle(self, text):
+        """显示字幕"""
+        if self.subtitle is None:
+            self.subtitle = SubtitleWindow(self)
+        self.subtitle.show_subtitle(text, interval=2000)

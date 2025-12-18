@@ -9,7 +9,7 @@ class ChatBubble(QWidget):
         self.parent_pet = parent  # 宠物窗口引用
         self.resizing = False  # 是否正在调整大小
         self.resize_edge = 10  # 边缘检测范围
-        self.llm = LLMService()
+        self.llm = None
         self.init_ui()
 
     def init_ui(self):
@@ -94,14 +94,19 @@ class ChatBubble(QWidget):
     def send_message(self):
         """发送消息"""
         text = self.input_field.text().strip()
-        if text:
-            # 显示用户消息
-            self.chat_display.append(f"你: {text}")
-            self.input_field.clear()
+        if not text:
+            return
 
-            # TODO: 调用 LLM 获取回复
-            reply = self.llm.chat(text)
-            self.chat_display.append(f"宠物: {reply}")
+        self.chat_display.append(f"你: {text}")
+        self.input_field.clear()
+
+        reply = self.llm.chat(text)
+
+        pet_name = "宠物"
+        if self.parent_pet and hasattr(self.parent_pet, 'settings'):
+            pet_name = self.parent_pet.settings.get("pet_name", "宠物")
+
+        self.chat_display.append(f"{pet_name}: {reply}")
 
     def show_near_pet(self):
         """显示在宠物旁边"""
