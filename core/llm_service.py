@@ -18,10 +18,12 @@ class LLMService:
         if not self.api_key:
             return "请先配置 API Key"
 
+        if not self.base_url:
+             return "请先在设置中配置 API URL"
+
         self.history.append({"role": "user", "content": message})
 
         try:
-            # 根据你的中转文档，不加 /v1
             url = f"{self.base_url}/v1/chat/completions"
 
             response = requests.post(
@@ -44,7 +46,10 @@ class LLMService:
             return reply
 
         except Exception as e:
-            return f"请求失败: {str(e)}"
+            error_msg = str(e)
+            if "Bearer" in error_msg or "key" in error_msg.lower():
+                return "API 请求失败，请检查配置"
+            return f"请求失败，请检查网络或配置"
 
     def clear_history(self):
         self.history = []
